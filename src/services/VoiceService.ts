@@ -41,32 +41,58 @@ class VoiceService {
 	}
 
 	private setupAudioProcessing(): void {
-		if (!this.localStream) return;
+		if (!this.localStream) {
+			console.log('Ses akışı bulunamadı, ses işleme başlatılamıyor');
+			return;
+		}
 
+		console.log('Ses işleme başlatılıyor...');
 		this.audioContext = new AudioContext();
 		const source = this.audioContext.createMediaStreamSource(this.localStream);
 		const processor = this.audioContext.createScriptProcessor(2048, 1, 1);
 
 		source.connect(processor);
 		processor.connect(this.audioContext.destination);
+		console.log('Ses işleme bağlantıları kuruldu');
 
 		this.mediaRecorder = new MediaRecorder(this.localStream, {
 			mimeType: 'audio/webm;codecs=opus',
 			audioBitsPerSecond: 32000
 		});
 
+		console.log('MediaRecorder yapılandırması:', {
+			state: this.mediaRecorder.state,
+			mimeType: this.mediaRecorder.mimeType,
+			audioBitsPerSecond: 32000
+		});
+
 		this.mediaRecorder.ondataavailable = (event) => {
 			if (event.data.size > 0 && this.isRecording) {
-				// Ses verisini backend'e gönder
+				console.log('Ses verisi yakalandı:', {
+					size: event.data.size,
+					type: event.data.type,
+					timestamp: new Date().toISOString()
+				});
+
 				SocketService.emit('voice_data', {
 					data: event.data
 				});
+				console.log('Ses verisi socket üzerinden gönderildi');
 			}
+		};
+
+		this.mediaRecorder.onstart = () => {
+			console.log('MediaRecorder kaydı başladı');
+		};
+
+		this.mediaRecorder.onerror = (error) => {
+			console.error('MediaRecorder hatası:', error);
 		};
 
 		// Her 100ms'de bir ses verisi gönder
 		this.mediaRecorder.start(100);
 		this.isRecording = true;
+		console.log('Ses kaydı başlatıldı, her 100ms\'de veri gönderilecek');
 	}
 
 	private setupSocketListeners(): void {
@@ -76,14 +102,31 @@ class VoiceService {
 			return;
 		}
 
+		console.log('Socket dinleyicileri ayarlanıyor...');
+
 		socket.on('voice_data', async ({ userId, data }: { userId: string; data: Blob }) => {
 			try {
-				// Gelen ses verisini çal
+				console.log('Ses verisi alındı:', {
+					userId,
+					size: data.size,
+					type: data.type,
+					timestamp: new Date().toISOString()
+				});
+
 				const audioBlob = new Blob([data], { type: 'audio/webm;codecs=opus' });
 				const audioUrl = URL.createObjectURL(audioBlob);
 				const audio = new Audio(audioUrl);
+
+				audio.onplay = () => {
+					console.log('Ses çalınmaya başladı:', userId);
+				};
+
+				audio.onended = () => {
+					console.log('Ses çalma tamamlandı:', userId);
+					URL.revokeObjectURL(audioUrl);
+				};
+
 				await audio.play();
-				URL.revokeObjectURL(audioUrl);
 			} catch (error) {
 				console.error('Ses çalma hatası:', error);
 			}
@@ -96,6 +139,8 @@ class VoiceService {
 		socket.on('voice_user_left', ({ userId }: { userId: string }) => {
 			console.log('Kullanıcı sesli sohbetten ayrıldı:', userId);
 		});
+
+		console.log('Socket dinleyicileri başarıyla ayarlandı');
 	}
 
 	public async joinVoiceChat(): Promise<void> {
