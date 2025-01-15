@@ -70,7 +70,7 @@ export default function handleVoiceEvents(socket: Socket<DefaultEventsMap, Defau
 		}
 	});
 
-	socket.on('voice_data', ({ data, mimeType }) => {
+	socket.on('voice_data', ({ data, sampleRate }) => {
 		const userId = socket.data.userId;
 		const roomId = socket.data.roomId;
 
@@ -105,8 +105,8 @@ export default function handleVoiceEvents(socket: Socket<DefaultEventsMap, Defau
 		console.log('Ses verisi alındı:', {
 			userId,
 			roomId,
-			mimeType,
 			veriBoyu: data.length,
+			sampleRate,
 			timestamp: new Date().toISOString()
 		});
 
@@ -114,7 +114,7 @@ export default function handleVoiceEvents(socket: Socket<DefaultEventsMap, Defau
 		socket.to(roomId).emit('voice_data', {
 			userId,
 			data,
-			mimeType
+			sampleRate
 		});
 		console.log('Ses verisi diğer kullanıcılara iletildi');
 	});

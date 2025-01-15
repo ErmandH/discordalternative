@@ -49,69 +49,31 @@ class VoiceService {
 		console.log('Ses işleme başlatılıyor...');
 		this.audioContext = new AudioContext();
 		const source = this.audioContext.createMediaStreamSource(this.localStream);
-		const processor = this.audioContext.createScriptProcessor(2048, 1, 1);
+		const processor = this.audioContext.createScriptProcessor(4096, 1, 1);
 
 		source.connect(processor);
 		processor.connect(this.audioContext.destination);
 		console.log('Ses işleme bağlantıları kuruldu');
 
-		// MediaRecorder'ı desteklenen bir MIME tipi ile oluştur
-		let mimeType = 'audio/webm';
-		if (MediaRecorder.isTypeSupported('audio/webm;codecs=opus')) {
-			mimeType = 'audio/webm;codecs=opus';
-		} else if (MediaRecorder.isTypeSupported('audio/webm')) {
-			mimeType = 'audio/webm';
-		} else if (MediaRecorder.isTypeSupported('audio/ogg;codecs=opus')) {
-			mimeType = 'audio/ogg;codecs=opus';
-		}
+		processor.onaudioprocess = (e) => {
+			if (!this.isRecording) return;
 
-		console.log('Kullanılan MIME tipi:', mimeType);
+			const inputData = e.inputBuffer.getChannelData(0);
+			const audioData = new Float32Array(inputData);
 
-		this.mediaRecorder = new MediaRecorder(this.localStream, {
-			mimeType,
-			audioBitsPerSecond: 32000
-		});
+			// Float32Array'i base64'e çevir
+			const bytes = new Uint8Array(audioData.buffer);
+			const binary = String.fromCharCode(...bytes);
+			const base64Data = btoa(binary);
 
-		console.log('MediaRecorder yapılandırması:', {
-			state: this.mediaRecorder.state,
-			mimeType: this.mediaRecorder.mimeType,
-			audioBitsPerSecond: 32000
-		});
-
-		this.mediaRecorder.ondataavailable = (event) => {
-			if (event.data.size > 0 && this.isRecording) {
-				console.log('Ses verisi yakalandı:', {
-					size: event.data.size,
-					type: event.data.type,
-					timestamp: new Date().toISOString()
-				});
-
-				// Ses verisini base64'e çevir
-				const reader = new FileReader();
-				reader.onloadend = () => {
-					const base64data = (reader.result as string).split(',')[1];
-					SocketService.emit('voice_data', {
-						data: base64data,
-						mimeType: this.mediaRecorder?.mimeType
-					});
-					console.log('Ses verisi socket üzerinden gönderildi');
-				};
-				reader.readAsDataURL(event.data);
-			}
+			SocketService.emit('voice_data', {
+				data: base64Data,
+				sampleRate: this.audioContext?.sampleRate
+			});
 		};
 
-		this.mediaRecorder.onstart = () => {
-			console.log('MediaRecorder kaydı başladı');
-		};
-
-		this.mediaRecorder.onerror = (error) => {
-			console.error('MediaRecorder hatası:', error);
-		};
-
-		// Her 100ms'de bir ses verisi gönder
-		this.mediaRecorder.start(100);
 		this.isRecording = true;
-		console.log('Ses kaydı başlatıldı, her 100ms\'de veri gönderilecek');
+		console.log('Ses işleme başlatıldı');
 	}
 
 	private setupSocketListeners(): void {
@@ -122,52 +84,36 @@ class VoiceService {
 		}
 
 		console.log('Socket dinleyicileri ayarlanıyor...');
-		console.log('Socket durumu:', {
-			id: socket.id,
-			connected: socket.connected,
-			activeChannel: socket.data?.roomId
-		});
 
-		socket.on('voice_data', async ({ userId, data, mimeType }: { userId: string; data: string; mimeType: string }) => {
+		socket.on('voice_data', async ({ userId, data, sampleRate }: { userId: string; data: string; sampleRate: number }) => {
 			try {
-				console.log('Ses verisi alındı:', {
-					userId,
-					socketId: socket.id,
-					activeChannel: socket.data?.roomId,
-					mimeType,
-					timestamp: new Date().toISOString()
-				});
-
-				// Base64'ten Blob'a çevir
-				const binaryData = atob(data);
-				const arrayBuffer = new ArrayBuffer(binaryData.length);
-				const uint8Array = new Uint8Array(arrayBuffer);
-				for (let i = 0; i < binaryData.length; i++) {
-					uint8Array[i] = binaryData.charCodeAt(i);
+				if (!this.audioContext) {
+					this.audioContext = new AudioContext();
 				}
-				const audioBlob = new Blob([uint8Array], { type: mimeType });
 
-				const audioUrl = URL.createObjectURL(audioBlob);
-				const audio = new Audio(audioUrl);
+				// Base64'ten Float32Array'e çevir
+				const binaryString = atob(data);
+				const bytes = new Uint8Array(binaryString.length);
+				for (let i = 0; i < binaryString.length; i++) {
+					bytes[i] = binaryString.charCodeAt(i);
+				}
+				const audioData = new Float32Array(bytes.buffer);
 
-				audio.onplay = () => {
-					console.log('Ses çalınmaya başladı:', {
-						userId,
-						socketId: socket.id,
-						activeChannel: socket.data?.roomId
-					});
+				// AudioBuffer oluştur
+				const audioBuffer = this.audioContext.createBuffer(1, audioData.length, sampleRate);
+				audioBuffer.getChannelData(0).set(audioData);
+
+				// AudioBuffer'ı çal
+				const source = this.audioContext.createBufferSource();
+				source.buffer = audioBuffer;
+				source.connect(this.audioContext.destination);
+
+				source.onended = () => {
+					console.log('Ses çalma tamamlandı:', userId);
 				};
 
-				audio.onended = () => {
-					console.log('Ses çalma tamamlandı:', {
-						userId,
-						socketId: socket.id,
-						activeChannel: socket.data?.roomId
-					});
-					URL.revokeObjectURL(audioUrl);
-				};
-
-				await audio.play();
+				console.log('Ses çalınmaya başlıyor:', userId);
+				source.start(0);
 			} catch (error) {
 				console.error('Ses çalma hatası:', error);
 			}
