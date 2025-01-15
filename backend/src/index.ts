@@ -3,6 +3,7 @@ import { createServer } from 'http';
 import { Server } from 'socket.io';
 import cors from 'cors';
 import ChatService from './services/ChatService';
+import handleVoiceEvents from './socket/voiceHandler';
 
 const app = express();
 const httpServer = createServer(app);
@@ -118,6 +119,8 @@ io.on('connection', (socket) => {
 			});
 		}
 	});
+
+	handleVoiceEvents(socket);
 
 	// Bağlantı koptuğunda
 	socket.on('disconnect', () => {

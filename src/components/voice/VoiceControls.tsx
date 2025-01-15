@@ -1,63 +1,47 @@
-import { useState, useEffect, useCallback } from "react";
-import WebRTCService from "../../services/WebRTCService";
+import React, { useState, useEffect } from "react";
 import { FaMicrophone, FaMicrophoneSlash } from "react-icons/fa";
+import VoiceService from "../../services/VoiceService";
 
-const VoiceControls = () => {
+const VoiceControls: React.FC = () => {
   const [isConnected, setIsConnected] = useState(false);
   const [isMuted, setIsMuted] = useState(false);
-  const [isJoining, setIsJoining] = useState(false);
-
-  const handleJoinVoice = useCallback(async () => {
-    if (isJoining || isConnected) return;
-
-    try {
-      setIsJoining(true);
-      await WebRTCService.joinVoiceChat();
-      setIsConnected(true);
-    } catch (error) {
-      console.error("Sesli sohbete katılma hatası:", error);
-    } finally {
-      setIsJoining(false);
-    }
-  }, [isJoining, isConnected]);
-
-  const handleLeaveVoice = useCallback(() => {
-    if (!isConnected) return;
-
-    WebRTCService.leaveVoiceChat();
-    setIsConnected(false);
-  }, [isConnected]);
 
   useEffect(() => {
-    handleJoinVoice();
-    return () => {
-      handleLeaveVoice();
+    const handleJoin = async () => {
+      try {
+        await VoiceService.joinVoiceChat();
+        setIsConnected(true);
+      } catch (error) {
+        console.error("Sesli sohbete katılma hatası:", error);
+        setIsConnected(false);
+      }
     };
-  }, []); // Boş bağımlılık dizisi
 
-  const handleToggleMute = useCallback(() => {
-    const stream = WebRTCService.getLocalStream();
-    if (stream) {
-      stream.getAudioTracks().forEach((track: MediaStreamTrack) => {
-        track.enabled = !track.enabled;
-      });
-      setIsMuted(!isMuted);
-    }
-  }, [isMuted]);
+    handleJoin();
+
+    return () => {
+      if (isConnected) {
+        VoiceService.leaveVoiceChat();
+        setIsConnected(false);
+      }
+    };
+  }, []);
+
+  const handleToggleMute = () => {
+    setIsMuted(!isMuted);
+    VoiceService.setMuted(!isMuted);
+  };
 
   return (
-    <div className="flex items-center space-x-2 p-2 bg-discord-primary rounded-lg">
+    <div className="flex items-center space-x-2">
       <button
         onClick={handleToggleMute}
-        disabled={!isConnected}
         className={`p-2 rounded-full ${
-          !isConnected
-            ? "bg-gray-500 cursor-not-allowed"
-            : isMuted
+          isMuted
             ? "bg-red-500 hover:bg-red-600"
-            : "bg-discord-accent hover:bg-opacity-80"
+            : "bg-green-500 hover:bg-green-600"
         }`}
-        title={isMuted ? "Sesi Aç" : "Sesi Kapat"}
+        aria-label={isMuted ? "Mikrofonu Aç" : "Mikrofonu Kapat"}
       >
         {isMuted ? (
           <FaMicrophoneSlash className="w-5 h-5 text-white" />
