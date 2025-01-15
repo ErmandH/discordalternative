@@ -33,6 +33,10 @@ io.on('connection', (socket) => {
 			return;
 		}
 
+		// Socket.data'ya kullanıcı bilgilerini ekle
+		socket.data.userId = user.id;
+		console.log('Socket.data güncellendi:', socket.data);
+
 		socket.emit('user_info', user);
 		// Tüm kullanıcıları gönder
 		io.emit('users_update', ChatService.getAllUsers());
@@ -42,6 +46,13 @@ io.on('connection', (socket) => {
 	socket.on('join_channel', ({ userId, channelId }) => {
 		ChatService.joinChannel(userId, channelId);
 		socket.join(channelId);
+
+		// Socket.data'ya kanal bilgisini ekle
+		socket.data.roomId = channelId;
+		console.log('Socket.data güncellendi:', socket.data);
+
+		// Voice handler'ı başlat
+		handleVoiceEvents(socket);
 
 		const user = ChatService.getUserBySocketId(socket.id);
 		if (user) {
@@ -119,8 +130,6 @@ io.on('connection', (socket) => {
 			});
 		}
 	});
-
-	handleVoiceEvents(socket);
 
 	// Bağlantı koptuğunda
 	socket.on('disconnect', () => {

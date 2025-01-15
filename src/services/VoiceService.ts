@@ -103,11 +103,18 @@ class VoiceService {
 		}
 
 		console.log('Socket dinleyicileri ayarlanıyor...');
+		console.log('Socket durumu:', {
+			id: socket.id,
+			connected: socket.connected,
+			activeChannel: socket.data?.roomId
+		});
 
 		socket.on('voice_data', async ({ userId, data }: { userId: string; data: Blob }) => {
 			try {
 				console.log('Ses verisi alındı:', {
 					userId,
+					socketId: socket.id,
+					activeChannel: socket.data?.roomId,
 					size: data.size,
 					type: data.type,
 					timestamp: new Date().toISOString()
@@ -118,11 +125,19 @@ class VoiceService {
 				const audio = new Audio(audioUrl);
 
 				audio.onplay = () => {
-					console.log('Ses çalınmaya başladı:', userId);
+					console.log('Ses çalınmaya başladı:', {
+						userId,
+						socketId: socket.id,
+						activeChannel: socket.data?.roomId
+					});
 				};
 
 				audio.onended = () => {
-					console.log('Ses çalma tamamlandı:', userId);
+					console.log('Ses çalma tamamlandı:', {
+						userId,
+						socketId: socket.id,
+						activeChannel: socket.data?.roomId
+					});
 					URL.revokeObjectURL(audioUrl);
 				};
 
@@ -145,6 +160,18 @@ class VoiceService {
 
 	public async joinVoiceChat(): Promise<void> {
 		try {
+			const socket = SocketService.getSocket();
+			if (!socket) {
+				throw new Error('Socket bağlantısı bulunamadı');
+			}
+
+			console.log('Sesli sohbete katılma isteği gönderiliyor...');
+			console.log('Socket durumu:', {
+				id: socket.id,
+				connected: socket.connected,
+				activeChannel: socket.data?.roomId
+			});
+
 			await this.initLocalStream();
 			this.setupSocketListeners();
 			this.setupAudioProcessing();
