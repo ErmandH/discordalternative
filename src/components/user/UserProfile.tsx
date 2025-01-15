@@ -1,5 +1,6 @@
 import { useState } from "react";
 import SettingsModal from "../settings/SettingsModal";
+import VoiceControls from "../voice/VoiceControls";
 
 interface UserProfileProps {
   username: string;
@@ -24,52 +25,7 @@ const UserProfile = ({ username, onUpdateUsername }: UserProfileProps) => {
           </div>
         </div>
         <div className="flex space-x-2">
-          {/* Mikrofon */}
-          <button
-            onClick={() => setIsMuted(!isMuted)}
-            className={`w-8 h-8 rounded-md hover:bg-discord-channelHover flex items-center justify-center ${
-              isMuted
-                ? "text-red-500"
-                : "text-discord-textSecondary hover:text-discord-textPrimary"
-            }`}
-          >
-            <svg
-              xmlns="http://www.w3.org/2000/svg"
-              viewBox="0 0 24 24"
-              fill="currentColor"
-              className="w-5 h-5"
-            >
-              <path d="M12 2a3 3 0 0 1 3 3v6a3 3 0 0 1-6 0V5a3 3 0 0 1 3-3Z" />
-              <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
-              <line
-                x1="12"
-                y1="18"
-                x2="12"
-                y2="22"
-                strokeWidth="2"
-                stroke="currentColor"
-              />
-              <line
-                x1="8"
-                y1="22"
-                x2="16"
-                y2="22"
-                strokeWidth="2"
-                stroke="currentColor"
-              />
-              {isMuted && (
-                <line
-                  x1="3"
-                  y1="3"
-                  x2="21"
-                  y2="21"
-                  strokeWidth="2"
-                  stroke="currentColor"
-                  className="text-red-500"
-                />
-              )}
-            </svg>
-          </button>
+        <VoiceControls />
 
           {/* Kulaklık */}
           <button

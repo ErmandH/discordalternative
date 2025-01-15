@@ -26,9 +26,9 @@ const ChannelList = ({
       </div>
 
       {/* Ses Kontrolleri */}
-      <div className="p-2">
+      {/* <div className="p-2">
         <VoiceControls />
-      </div>
+      </div> */}
 
       {/* Kanallar */}
       <div className="flex-1 overflow-y-auto p-2">
