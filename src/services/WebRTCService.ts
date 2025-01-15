@@ -12,9 +12,19 @@ class WebRTCService {
 	private isSocketListenerSetup = false;
 	private configuration: RTCConfiguration = {
 		iceServers: [
-			{ urls: 'stun:stun.l.google.com:19302' },
-			{ urls: 'stun:stun1.l.google.com:19302' },
+			{
+				urls: [
+					'stun:stun1.l.google.com:19302',
+					'stun:stun2.l.google.com:19302',
+					'stun:stun3.l.google.com:19302',
+					'stun:stun4.l.google.com:19302'
+				]
+			}
 		],
+		iceTransportPolicy: 'all',
+		iceCandidatePoolSize: 10,
+		bundlePolicy: 'max-bundle',
+		rtcpMuxPolicy: 'require'
 	};
 
 	private constructor() { }
@@ -34,7 +44,6 @@ class WebRTCService {
 		if (this.isSocketListenerSetup) return;
 
 		const socket = SocketService.getSocket();
-		console.log('setupSocketListeners:', socket);
 		if (!socket) return;
 
 		console.log('Socket dinleyicileri kuruluyor...');
@@ -42,19 +51,19 @@ class WebRTCService {
 
 		socket.on('voice_user_joined', async ({ userId }: { userId: string }) => {
 			console.log('Yeni kullanıcı sesli sohbete katıldı:', userId);
-			await this.createPeerConnection(userId);
 
-			// Yeni kullanıcıya teklif gönder
-			const peerConnection = this.peerConnections.get(userId);
-			if (peerConnection) {
-				try {
-					const offer = await peerConnection.connection.createOffer();
-					await peerConnection.connection.setLocalDescription(offer);
-					socket.emit('voice_offer', { userId, offer });
-					console.log('Teklif gönderildi:', userId);
-				} catch (error) {
-					console.error('Teklif oluşturma hatası:', error);
-				}
+			try {
+				const peerConnection = await this.createPeerConnection(userId);
+				const offer = await peerConnection.connection.createOffer({
+					offerToReceiveAudio: true,
+					offerToReceiveVideo: false
+				});
+
+				await peerConnection.connection.setLocalDescription(new RTCSessionDescription(offer));
+				socket.emit('voice_offer', { userId, offer });
+				console.log('Teklif gönderildi:', userId);
+			} catch (error) {
+				console.error('Teklif oluşturma hatası:', error);
 			}
 		});
 
@@ -65,11 +74,13 @@ class WebRTCService {
 
 		socket.on('voice_offer', async ({ userId, offer }: { userId: string; offer: RTCSessionDescriptionInit }) => {
 			console.log('Teklif alındı:', userId);
-			const peerConnection = await this.createPeerConnection(userId);
 			try {
-				await peerConnection.connection.setRemoteDescription(offer);
+				const peerConnection = await this.createPeerConnection(userId);
+				await peerConnection.connection.setRemoteDescription(new RTCSessionDescription(offer));
+
 				const answer = await peerConnection.connection.createAnswer();
-				await peerConnection.connection.setLocalDescription(answer);
+				await peerConnection.connection.setLocalDescription(new RTCSessionDescription(answer));
+
 				socket.emit('voice_answer', { userId, answer });
 				console.log('Cevap gönderildi:', userId);
 			} catch (error) {
@@ -79,34 +90,42 @@ class WebRTCService {
 
 		socket.on('voice_answer', async ({ userId, answer }: { userId: string; answer: RTCSessionDescriptionInit }) => {
 			console.log('Cevap alındı:', userId);
-			const peerConnection = this.peerConnections.get(userId);
-			if (peerConnection) {
-				try {
-					await peerConnection.connection.setRemoteDescription(answer);
+			try {
+				const peerConnection = this.peerConnections.get(userId);
+				if (peerConnection && peerConnection.connection.signalingState !== 'closed') {
+					await peerConnection.connection.setRemoteDescription(new RTCSessionDescription(answer));
 					console.log('Bağlantı kuruldu:', userId);
-				} catch (error) {
-					console.error('Cevap ayarlama hatası:', error);
 				}
+			} catch (error) {
+				console.error('Cevap ayarlama hatası:', error);
 			}
 		});
 
 		socket.on('voice_ice_candidate', async ({ userId, candidate }: { userId: string; candidate: RTCIceCandidateInit }) => {
-			console.log('ICE adayı alındı:', userId);
-			const peerConnection = this.peerConnections.get(userId);
-			if (peerConnection) {
-				try {
-					await peerConnection.connection.addIceCandidate(candidate);
+			try {
+				const peerConnection = this.peerConnections.get(userId);
+				if (peerConnection && peerConnection.connection.remoteDescription) {
+					await peerConnection.connection.addIceCandidate(new RTCIceCandidate(candidate));
 					console.log('ICE adayı eklendi:', userId);
-				} catch (error) {
-					console.error('ICE adayı ekleme hatası:', error);
+				} else {
+					console.log('ICE adayı bekletiliyor - RemoteDescription henüz ayarlanmadı');
 				}
+			} catch (error) {
+				console.error('ICE adayı ekleme hatası:', error);
 			}
 		});
 	}
 
 	private async createPeerConnection(userId: string): Promise<PeerConnection> {
-		if (this.peerConnections.has(userId)) {
-			return this.peerConnections.get(userId)!;
+		// Eğer varolan bir bağlantı varsa ve açıksa, onu kullan
+		const existingConnection = this.peerConnections.get(userId);
+		if (existingConnection && existingConnection.connection.connectionState !== 'closed') {
+			return existingConnection;
+		}
+
+		// Varolan bağlantıyı kaldır
+		if (existingConnection) {
+			this.removePeerConnection(userId);
 		}
 
 		const connection = new RTCPeerConnection(this.configuration);
@@ -116,56 +135,50 @@ class WebRTCService {
 			throw new Error('Yerel ses akışı alınamadı');
 		}
 
-		// Ses seviyesini kontrol et
-		const audioContext = new AudioContext();
-		const mediaStreamSource = audioContext.createMediaStreamSource(stream);
-		const analyser = audioContext.createAnalyser();
-		mediaStreamSource.connect(analyser);
-
-		const dataArray = new Uint8Array(analyser.frequencyBinCount);
-		const checkAudioLevel = () => {
-			analyser.getByteFrequencyData(dataArray);
-			const average = dataArray.reduce((a, b) => a + b) / dataArray.length;
-			if (average > 0) {
-				console.log('Ses algılandı - Seviye:', average);
-			}
-		};
-		setInterval(checkAudioLevel, 100);
-
+		// Ses kanallarını ekle
 		stream.getTracks().forEach(track => {
-			const sender = connection.addTrack(track, stream);
+			connection.addTrack(track, stream);
 			console.log('Ses kanalı eklendi:', track.id);
-
-			// Ses seviyesini izle
-			sender.getStats().then(stats => {
-				stats.forEach(report => {
-					if (report.type === 'outbound-rtp' && report.kind === 'audio') {
-						console.log('Ses iletim istatistikleri:', report);
-					}
-				});
-			});
 		});
 
+		// ICE adaylarını dinle
 		connection.onicecandidate = (event) => {
 			if (event.candidate) {
+				console.log('Yeni ICE adayı bulundu:', event.candidate);
 				SocketService.emit('voice_ice_candidate', {
 					userId,
-					candidate: event.candidate,
+					candidate: event.candidate
 				});
 			}
 		};
 
+		// ICE bağlantı durumunu izle
+		connection.oniceconnectionstatechange = () => {
+			console.log('ICE Bağlantı durumu:', connection.iceConnectionState);
+			if (connection.iceConnectionState === 'failed') {
+				console.log('ICE bağlantısı başarısız oldu, yeniden deneniyor...');
+				connection.restartIce();
+			}
+		};
+
+		// Uzak ses akışını al
 		connection.ontrack = (event) => {
+			console.log('Uzak ses akışı alındı');
 			const [remoteStream] = event.streams;
-			console.log('Uzak ses akışı alındı:', remoteStream.id);
 			this.handleRemoteStream(userId, remoteStream);
 		};
 
+		// Bağlantı durumunu izle
 		connection.onconnectionstatechange = () => {
-			console.log('Bağlantı durumu değişti:', connection.connectionState);
+			console.log('Bağlantı durumu:', connection.connectionState);
 			if (connection.connectionState === 'connected') {
-				console.log('Peer bağlantısı başarıyla kuruldu:', userId);
+				console.log('Peer bağlantısı başarılı:', userId);
 			}
+		};
+
+		// Sinyal durumunu izle
+		connection.onsignalingstatechange = () => {
+			console.log('Sinyal durumu:', connection.signalingState);
 		};
 
 		const peerConnection: PeerConnection = { connection, stream };
@@ -174,65 +187,27 @@ class WebRTCService {
 		return peerConnection;
 	}
 
-	private removePeerConnection(userId: string): void {
-		const peerConnection = this.peerConnections.get(userId);
-		if (peerConnection) {
-			peerConnection.connection.close();
-			this.peerConnections.delete(userId);
-			console.log('Peer bağlantısı kapatıldı:', userId);
-		}
-	}
-
-	private async initLocalStream(): Promise<MediaStream> {
-		try {
-			this.localStream = await navigator.mediaDevices.getUserMedia({
-				audio: {
-					echoCancellation: true,
-					noiseSuppression: true,
-					autoGainControl: true
-				},
-				video: false
-			});
-
-			console.log('Mikrofon başarıyla başlatıldı');
-
-			// Ses seviyesini kontrol et
-			const audioContext = new AudioContext();
-			const mediaStreamSource = audioContext.createMediaStreamSource(this.localStream);
-			const analyser = audioContext.createAnalyser();
-			mediaStreamSource.connect(analyser);
-
-			const dataArray = new Uint8Array(analyser.frequencyBinCount);
-			const checkAudioLevel = () => {
-				analyser.getByteFrequencyData(dataArray);
-				const average = dataArray.reduce((a, b) => a + b) / dataArray.length;
-				if (average > 0) {
-					//console.log('Mikrofon ses seviyesi:', average);
-				}
-			};
-			setInterval(checkAudioLevel, 100);
-
-			return this.localStream;
-		} catch (error) {
-			console.error('Mikrofon erişim hatası:', error);
-			throw error;
-		}
-	}
-
 	private handleRemoteStream(userId: string, stream: MediaStream): void {
+		console.log('Uzak ses akışı işleniyor:', userId);
+
+		// Varolan ses elementini kaldır
+		const existingAudio = document.getElementById(`remote-audio-${userId}`);
+		if (existingAudio) {
+			existingAudio.remove();
+		}
+
+		// Yeni ses elementi oluştur
 		const audioElement = document.createElement('audio');
 		audioElement.id = `remote-audio-${userId}`;
 		audioElement.srcObject = stream;
 		audioElement.autoplay = true;
 		document.body.appendChild(audioElement);
 
-		console.log('Uzak ses akışı başlatıldı:', userId);
-
 		// Ses seviyesini kontrol et
 		const audioContext = new AudioContext();
-		const mediaStreamSource = audioContext.createMediaStreamSource(stream);
+		const source = audioContext.createMediaStreamSource(stream);
 		const analyser = audioContext.createAnalyser();
-		mediaStreamSource.connect(analyser);
+		source.connect(analyser);
 
 		const dataArray = new Uint8Array(analyser.frequencyBinCount);
 		const checkAudioLevel = () => {
@@ -245,15 +220,30 @@ class WebRTCService {
 		setInterval(checkAudioLevel, 100);
 	}
 
+	private async initLocalStream(): Promise<MediaStream> {
+		try {
+			this.localStream = await navigator.mediaDevices.getUserMedia({
+				audio: {
+					echoCancellation: true,
+					noiseSuppression: true,
+					autoGainControl: true,
+					channelCount: 1
+				},
+				video: false
+			});
+
+			console.log('Mikrofon başarıyla başlatıldı');
+			return this.localStream;
+		} catch (error) {
+			console.error('Mikrofon erişim hatası:', error);
+			throw error;
+		}
+	}
+
 	public async joinVoiceChat(): Promise<void> {
 		try {
-			// Socket dinleyicilerini kur
-			this.setupSocketListeners();
-
-			// Mikrofonu başlat
 			await this.initLocalStream();
-
-			// Sesli sohbete katıl
+			this.setupSocketListeners();
 			SocketService.emit('voice_join', {});
 			console.log('Sesli sohbete katılma başarılı');
 		} catch (error) {
@@ -282,6 +272,15 @@ class WebRTCService {
 
 		SocketService.emit('voice_leave', {});
 		console.log('Sesli sohbetten çıkış yapıldı');
+	}
+
+	private removePeerConnection(userId: string): void {
+		const peerConnection = this.peerConnections.get(userId);
+		if (peerConnection) {
+			peerConnection.connection.close();
+			this.peerConnections.delete(userId);
+			console.log('Peer bağlantısı kapatıldı:', userId);
+		}
 	}
 }
 
