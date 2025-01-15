@@ -71,6 +71,7 @@ io.on('connection', (socket) => {
 	// Sesli sohbet olayları
 	socket.on('voice_join', () => {
 		const user = ChatService.getUserBySocketId(socket.id);
+		console.log('Sesli sohbete katılma olayı tetiklendi:', user);
 		if (user) {
 			// Diğer kullanıcılara bildir
 			socket.broadcast.emit('voice_user_joined', { userId: user.id });

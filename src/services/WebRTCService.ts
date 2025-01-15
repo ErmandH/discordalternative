@@ -31,10 +31,11 @@ class WebRTCService {
 		return this.localStream;
 	}
 
-	private setupSocketListeners(): void {
+	public setupSocketListeners(): void {
 		const socket = SocketService.getSocket();
+		console.log('setupSocketListeners:', socket);
 		if (!socket) return;
-
+		console.log('setupSocketListeners socket mevcut:', socket);
 		socket.on('voice_user_joined', async ({ userId }: { userId: string }) => {
 			console.log('Yeni kullanıcı sesli sohbete katıldı:', userId);
 			await this.createPeerConnection(userId);
@@ -202,7 +203,7 @@ class WebRTCService {
 				analyser.getByteFrequencyData(dataArray);
 				const average = dataArray.reduce((a, b) => a + b) / dataArray.length;
 				if (average > 0) {
-					console.log('Mikrofon ses seviyesi:', average);
+					//console.log('Mikrofon ses seviyesi:', average);
 				}
 			};
 			setInterval(checkAudioLevel, 100);
