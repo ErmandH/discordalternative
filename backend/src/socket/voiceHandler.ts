@@ -70,7 +70,7 @@ export default function handleVoiceEvents(socket: Socket<DefaultEventsMap, Defau
 		}
 	});
 
-	socket.on('voice_data', ({ data }) => {
+	socket.on('voice_data', ({ data, mimeType }) => {
 		const userId = socket.data.userId;
 		const roomId = socket.data.roomId;
 
@@ -101,18 +101,20 @@ export default function handleVoiceEvents(socket: Socket<DefaultEventsMap, Defau
 			});
 			return;
 		}
+
 		console.log('Ses verisi alındı:', {
 			userId,
 			roomId,
-			veriBoyu: data.size,
-			veriTipi: data.type,
+			mimeType,
+			veriBoyu: data.length,
 			timestamp: new Date().toISOString()
 		});
 
 		// Ses verisini odadaki diğer kullanıcılara ilet
 		socket.to(roomId).emit('voice_data', {
 			userId,
-			data
+			data,
+			mimeType
 		});
 		console.log('Ses verisi diğer kullanıcılara iletildi');
 	});

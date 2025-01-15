@@ -55,8 +55,20 @@ class VoiceService {
 		processor.connect(this.audioContext.destination);
 		console.log('Ses işleme bağlantıları kuruldu');
 
+		// MediaRecorder'ı desteklenen bir MIME tipi ile oluştur
+		let mimeType = 'audio/webm';
+		if (MediaRecorder.isTypeSupported('audio/webm;codecs=opus')) {
+			mimeType = 'audio/webm;codecs=opus';
+		} else if (MediaRecorder.isTypeSupported('audio/webm')) {
+			mimeType = 'audio/webm';
+		} else if (MediaRecorder.isTypeSupported('audio/ogg;codecs=opus')) {
+			mimeType = 'audio/ogg;codecs=opus';
+		}
+
+		console.log('Kullanılan MIME tipi:', mimeType);
+
 		this.mediaRecorder = new MediaRecorder(this.localStream, {
-			mimeType: 'audio/webm;codecs=opus',
+			mimeType,
 			audioBitsPerSecond: 32000
 		});
 
@@ -74,10 +86,17 @@ class VoiceService {
 					timestamp: new Date().toISOString()
 				});
 
-				SocketService.emit('voice_data', {
-					data: event.data
-				});
-				console.log('Ses verisi socket üzerinden gönderildi');
+				// Ses verisini base64'e çevir
+				const reader = new FileReader();
+				reader.onloadend = () => {
+					const base64data = (reader.result as string).split(',')[1];
+					SocketService.emit('voice_data', {
+						data: base64data,
+						mimeType: this.mediaRecorder?.mimeType
+					});
+					console.log('Ses verisi socket üzerinden gönderildi');
+				};
+				reader.readAsDataURL(event.data);
 			}
 		};
 
@@ -109,18 +128,25 @@ class VoiceService {
 			activeChannel: socket.data?.roomId
 		});
 
-		socket.on('voice_data', async ({ userId, data }: { userId: string; data: Blob }) => {
+		socket.on('voice_data', async ({ userId, data, mimeType }: { userId: string; data: string; mimeType: string }) => {
 			try {
 				console.log('Ses verisi alındı:', {
 					userId,
 					socketId: socket.id,
 					activeChannel: socket.data?.roomId,
-					size: data.size,
-					type: data.type,
+					mimeType,
 					timestamp: new Date().toISOString()
 				});
 
-				const audioBlob = new Blob([data], { type: 'audio/webm;codecs=opus' });
+				// Base64'ten Blob'a çevir
+				const binaryData = atob(data);
+				const arrayBuffer = new ArrayBuffer(binaryData.length);
+				const uint8Array = new Uint8Array(arrayBuffer);
+				for (let i = 0; i < binaryData.length; i++) {
+					uint8Array[i] = binaryData.charCodeAt(i);
+				}
+				const audioBlob = new Blob([uint8Array], { type: mimeType });
+
 				const audioUrl = URL.createObjectURL(audioBlob);
 				const audio = new Audio(audioUrl);
 
