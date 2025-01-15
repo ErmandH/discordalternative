@@ -15,14 +15,8 @@ class WebRTCService {
 		iceServers: [
 			{
 				urls: [
-					'stun:stun1.l.google.com:19302',
-					'stun:stun2.l.google.com:19302'
+					'stun:stun.l.google.com:19302',
 				]
-			},
-			{
-				urls: 'turn:numb.viagenie.ca',
-				username: 'webrtc@live.com',
-				credential: 'muazkh'
 			}
 		],
 		iceTransportPolicy: 'all',
@@ -66,8 +60,7 @@ class WebRTCService {
 				const peerConnection = await this.createPeerConnection(userId);
 				const offer = await peerConnection.connection.createOffer({
 					offerToReceiveAudio: true,
-					offerToReceiveVideo: false,
-					voiceActivityDetection: true
+					offerToReceiveVideo: false
 				});
 
 				await peerConnection.connection.setLocalDescription(offer);
@@ -168,37 +161,45 @@ class WebRTCService {
 
 		connection.onicecandidate = (event) => {
 			if (event.candidate) {
-				console.log('Yeni ICE adayı bulundu:', event.candidate.type);
+				console.log('Yeni ICE adayı bulundu:', event.candidate.type, event.candidate.protocol);
 				SocketService.emit('voice_ice_candidate', {
 					userId,
 					candidate: event.candidate
 				});
+			} else {
+				console.log('ICE aday toplama tamamlandı');
 			}
 		};
 
 		connection.oniceconnectionstatechange = () => {
-			console.log('ICE Bağlantı durumu:', connection.iceConnectionState);
+			console.log('ICE Bağlantı durumu:', connection.iceConnectionState, 'için', userId);
 			if (connection.iceConnectionState === 'failed') {
-				console.log('ICE bağlantısı başarısız oldu, yeniden deneniyor...');
+				console.log('ICE bağlantısı başarısız oldu, yeniden deneniyor...', userId);
 				connection.restartIce();
+			} else if (connection.iceConnectionState === 'connected') {
+				console.log('ICE bağlantısı başarılı:', userId);
 			}
 		};
 
 		connection.ontrack = (event) => {
-			console.log('Uzak ses akışı alındı');
+			console.log('Uzak ses akışı alındı:', userId);
 			const [remoteStream] = event.streams;
 			this.handleRemoteStream(userId, remoteStream);
 		};
 
 		connection.onconnectionstatechange = () => {
-			console.log('Bağlantı durumu:', connection.connectionState);
+			console.log('Bağlantı durumu:', connection.connectionState, 'için', userId);
 			if (connection.connectionState === 'connected') {
 				console.log('Peer bağlantısı başarılı:', userId);
+			} else if (connection.connectionState === 'failed') {
+				console.log('Bağlantı başarısız oldu, yeniden bağlanılıyor:', userId);
+				this.removePeerConnection(userId);
+				this.createPeerConnection(userId);
 			}
 		};
 
 		connection.onsignalingstatechange = () => {
-			console.log('Sinyal durumu:', connection.signalingState);
+			console.log('Sinyal durumu:', connection.signalingState, 'için', userId);
 		};
 
 		const peerConnection: PeerConnection = { connection, stream };
