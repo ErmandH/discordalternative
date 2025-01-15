@@ -1,6 +1,8 @@
 import { io, Socket } from 'socket.io-client';
 
-const SOCKET_URL = 'http://localhost:3001';
+// Backend sunucusunun IP adresi ve portu
+// Diğer bilgisayardan bağlanmak için bu adresi değiştirin
+const SOCKET_URL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:3001';
 
 class SocketService {
 	private static instance: SocketService;
@@ -21,6 +23,7 @@ class SocketService {
 
 	public connect(): Socket {
 		if (!this.socket) {
+			console.log('Bağlanılıyor:', SOCKET_URL);
 			this.socket = io(SOCKET_URL);
 			console.log('Yeni socket bağlantısı kuruldu');
 		}

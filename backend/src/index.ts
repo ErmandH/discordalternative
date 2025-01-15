@@ -135,6 +135,17 @@ io.on('connection', (socket) => {
 });
 
 const PORT = process.env.PORT || 3001;
-httpServer.listen(PORT, () => {
+// Tüm IP adreslerinden bağlantı kabul et
+httpServer.listen(PORT, '0.0.0.0', () => {
 	console.log(`Server ${PORT} portunda çalışıyor`);
+	console.log('Bağlantı adresleri:');
+	const networkInterfaces = require('os').networkInterfaces();
+	for (const interfaceName in networkInterfaces) {
+		const interfaces = networkInterfaces[interfaceName];
+		for (const iface of interfaces) {
+			if (iface.family === 'IPv4' && !iface.internal) {
+				console.log(`http://${iface.address}:${PORT}`);
+			}
+		}
+	}
 }); 
