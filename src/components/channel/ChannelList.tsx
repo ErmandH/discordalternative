@@ -1,4 +1,7 @@
+import { useState } from "react";
+import { FaHashtag } from "react-icons/fa";
 import UserProfile from "../user/UserProfile";
+import VoiceControls from "../voice/VoiceControls";
 
 interface ChannelListProps {
   selectedChannel: string;
@@ -7,39 +10,53 @@ interface ChannelListProps {
   onUpdateUsername: (newUsername: string) => void;
 }
 
+const channels = ["genel", "sohbet", "kodlama", "yardım"];
+
 const ChannelList = ({
   selectedChannel,
   onChannelSelect,
   username,
   onUpdateUsername,
 }: ChannelListProps) => {
-  const channels = ["genel", "sohbet", "kodlama", "yardım"];
-
   return (
     <div className="w-60 bg-discord-secondary flex flex-col">
-      <div className="p-4">
-        <h2 className="text-white font-bold">Discord Alternative</h2>
+      {/* Sunucu Başlığı */}
+      <div className="p-4 shadow-sm">
+        <h2 className="text-white font-semibold">Discord Alternative</h2>
       </div>
-      <div className="px-2 flex-1">
-        <div className="text-discord-textSecondary uppercase text-xs font-semibold mb-1 mt-4">
-          Metin Kanalları
+
+      {/* Ses Kontrolleri */}
+      <div className="p-2">
+        <VoiceControls />
+      </div>
+
+      {/* Kanallar */}
+      <div className="flex-1 overflow-y-auto p-2">
+        <div className="mb-4">
+          <h3 className="text-discord-textSecondary font-semibold text-xs uppercase px-2 mb-2">
+            Metin Kanalları
+          </h3>
+          {channels.map((channel) => (
+            <button
+              key={channel}
+              onClick={() => onChannelSelect(channel)}
+              className={`w-full flex items-center px-2 py-1 rounded text-sm mb-1 ${
+                selectedChannel === channel
+                  ? "bg-discord-selected text-white"
+                  : "text-discord-textSecondary hover:bg-discord-hover hover:text-discord-textPrimary"
+              }`}
+            >
+              <FaHashtag className="mr-1" />
+              {channel}
+            </button>
+          ))}
         </div>
-        {channels.map((channel) => (
-          <div
-            key={channel}
-            onClick={() => onChannelSelect(channel)}
-            className={`flex items-center px-2 py-1 rounded cursor-pointer ${
-              selectedChannel === channel
-                ? "bg-discord-channelActive text-discord-textPrimary"
-                : "text-discord-textSecondary hover:bg-discord-channelHover hover:text-discord-textPrimary"
-            }`}
-          >
-            <span className="text-lg mr-1">#</span>
-            {channel}
-          </div>
-        ))}
       </div>
-      <UserProfile username={username} onUpdateUsername={onUpdateUsername} />
+
+      {/* Kullanıcı Profili */}
+      <div className="p-2 bg-discord-primary mt-auto">
+        <UserProfile username={username} onUpdateUsername={onUpdateUsername} />
+      </div>
     </div>
   );
 };

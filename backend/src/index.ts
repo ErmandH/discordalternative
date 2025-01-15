@@ -68,6 +68,56 @@ io.on('connection', (socket) => {
 		}
 	});
 
+	// Sesli sohbet olayları
+	socket.on('voice_join', () => {
+		const user = ChatService.getUserBySocketId(socket.id);
+		if (user) {
+			// Diğer kullanıcılara bildir
+			socket.broadcast.emit('voice_user_joined', { userId: user.id });
+		}
+	});
+
+	socket.on('voice_leave', () => {
+		const user = ChatService.getUserBySocketId(socket.id);
+		if (user) {
+			// Diğer kullanıcılara bildir
+			socket.broadcast.emit('voice_user_left', { userId: user.id });
+		}
+	});
+
+	socket.on('voice_offer', ({ userId, offer }) => {
+		const user = ChatService.getUserBySocketId(socket.id);
+		if (user) {
+			// Teklifi hedef kullanıcıya ilet
+			io.to(userId).emit('voice_offer', {
+				userId: user.id,
+				offer
+			});
+		}
+	});
+
+	socket.on('voice_answer', ({ userId, answer }) => {
+		const user = ChatService.getUserBySocketId(socket.id);
+		if (user) {
+			// Cevabı hedef kullanıcıya ilet
+			io.to(userId).emit('voice_answer', {
+				userId: user.id,
+				answer
+			});
+		}
+	});
+
+	socket.on('voice_ice_candidate', ({ userId, candidate }) => {
+		const user = ChatService.getUserBySocketId(socket.id);
+		if (user) {
+			// ICE adayını hedef kullanıcıya ilet
+			io.to(userId).emit('voice_ice_candidate', {
+				userId: user.id,
+				candidate
+			});
+		}
+	});
+
 	// Bağlantı koptuğunda
 	socket.on('disconnect', () => {
 		const user = ChatService.getUserBySocketId(socket.id);
