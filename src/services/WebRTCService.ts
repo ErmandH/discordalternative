@@ -10,21 +10,25 @@ class WebRTCService {
 	private peerConnections: Map<string, PeerConnection> = new Map();
 	private localStream: MediaStream | null = null;
 	private isSocketListenerSetup = false;
+	private pendingCandidates: Map<string, RTCIceCandidateInit[]> = new Map();
 	private configuration: RTCConfiguration = {
 		iceServers: [
 			{
 				urls: [
 					'stun:stun1.l.google.com:19302',
-					'stun:stun2.l.google.com:19302',
-					'stun:stun3.l.google.com:19302',
-					'stun:stun4.l.google.com:19302'
+					'stun:stun2.l.google.com:19302'
 				]
+			},
+			{
+				urls: 'turn:numb.viagenie.ca',
+				username: 'webrtc@live.com',
+				credential: 'muazkh'
 			}
 		],
 		iceTransportPolicy: 'all',
-		iceCandidatePoolSize: 10,
 		bundlePolicy: 'max-bundle',
-		rtcpMuxPolicy: 'require'
+		rtcpMuxPolicy: 'require',
+		iceCandidatePoolSize: 0
 	};
 
 	private constructor() { }
@@ -41,10 +45,16 @@ class WebRTCService {
 	}
 
 	private setupSocketListeners(): void {
-		if (this.isSocketListenerSetup) return;
+		if (this.isSocketListenerSetup) {
+			console.log('Socket dinleyicileri zaten kurulu');
+			return;
+		}
 
 		const socket = SocketService.getSocket();
-		if (!socket) return;
+		if (!socket) {
+			console.error('Socket bağlantısı bulunamadı');
+			return;
+		}
 
 		console.log('Socket dinleyicileri kuruluyor...');
 		this.isSocketListenerSetup = true;
@@ -56,20 +66,16 @@ class WebRTCService {
 				const peerConnection = await this.createPeerConnection(userId);
 				const offer = await peerConnection.connection.createOffer({
 					offerToReceiveAudio: true,
-					offerToReceiveVideo: false
+					offerToReceiveVideo: false,
+					voiceActivityDetection: true
 				});
 
-				await peerConnection.connection.setLocalDescription(new RTCSessionDescription(offer));
+				await peerConnection.connection.setLocalDescription(offer);
 				socket.emit('voice_offer', { userId, offer });
 				console.log('Teklif gönderildi:', userId);
 			} catch (error) {
 				console.error('Teklif oluşturma hatası:', error);
 			}
-		});
-
-		socket.on('voice_user_left', ({ userId }: { userId: string }) => {
-			console.log('Kullanıcı sesli sohbetten ayrıldı:', userId);
-			this.removePeerConnection(userId);
 		});
 
 		socket.on('voice_offer', async ({ userId, offer }: { userId: string; offer: RTCSessionDescriptionInit }) => {
@@ -79,10 +85,20 @@ class WebRTCService {
 				await peerConnection.connection.setRemoteDescription(new RTCSessionDescription(offer));
 
 				const answer = await peerConnection.connection.createAnswer();
-				await peerConnection.connection.setLocalDescription(new RTCSessionDescription(answer));
+				await peerConnection.connection.setLocalDescription(answer);
 
 				socket.emit('voice_answer', { userId, answer });
 				console.log('Cevap gönderildi:', userId);
+
+				// Bekleyen ICE adaylarını ekle
+				const candidates = this.pendingCandidates.get(userId);
+				if (candidates) {
+					console.log('Bekleyen ICE adayları ekleniyor:', candidates.length);
+					for (const candidate of candidates) {
+						await peerConnection.connection.addIceCandidate(new RTCIceCandidate(candidate));
+					}
+					this.pendingCandidates.delete(userId);
+				}
 			} catch (error) {
 				console.error('Cevap oluşturma hatası:', error);
 			}
@@ -108,26 +124,36 @@ class WebRTCService {
 					await peerConnection.connection.addIceCandidate(new RTCIceCandidate(candidate));
 					console.log('ICE adayı eklendi:', userId);
 				} else {
-					console.log('ICE adayı bekletiliyor - RemoteDescription henüz ayarlanmadı');
+					// RemoteDescription henüz ayarlanmamışsa, adayı sakla
+					if (!this.pendingCandidates.has(userId)) {
+						this.pendingCandidates.set(userId, []);
+					}
+					this.pendingCandidates.get(userId)?.push(candidate);
+					console.log('ICE adayı beklemeye alındı');
 				}
 			} catch (error) {
 				console.error('ICE adayı ekleme hatası:', error);
 			}
 		});
+
+		socket.on('voice_user_left', ({ userId }: { userId: string }) => {
+			console.log('Kullanıcı sesli sohbetten ayrıldı:', userId);
+			this.removePeerConnection(userId);
+			this.pendingCandidates.delete(userId);
+		});
 	}
 
 	private async createPeerConnection(userId: string): Promise<PeerConnection> {
-		// Eğer varolan bir bağlantı varsa ve açıksa, onu kullan
 		const existingConnection = this.peerConnections.get(userId);
 		if (existingConnection && existingConnection.connection.connectionState !== 'closed') {
 			return existingConnection;
 		}
 
-		// Varolan bağlantıyı kaldır
 		if (existingConnection) {
 			this.removePeerConnection(userId);
 		}
 
+		console.log('Yeni peer bağlantısı oluşturuluyor:', userId);
 		const connection = new RTCPeerConnection(this.configuration);
 		const stream = await this.getLocalStream();
 
@@ -135,16 +161,14 @@ class WebRTCService {
 			throw new Error('Yerel ses akışı alınamadı');
 		}
 
-		// Ses kanallarını ekle
 		stream.getTracks().forEach(track => {
 			connection.addTrack(track, stream);
 			console.log('Ses kanalı eklendi:', track.id);
 		});
 
-		// ICE adaylarını dinle
 		connection.onicecandidate = (event) => {
 			if (event.candidate) {
-				console.log('Yeni ICE adayı bulundu:', event.candidate);
+				console.log('Yeni ICE adayı bulundu:', event.candidate.type);
 				SocketService.emit('voice_ice_candidate', {
 					userId,
 					candidate: event.candidate
@@ -152,7 +176,6 @@ class WebRTCService {
 			}
 		};
 
-		// ICE bağlantı durumunu izle
 		connection.oniceconnectionstatechange = () => {
 			console.log('ICE Bağlantı durumu:', connection.iceConnectionState);
 			if (connection.iceConnectionState === 'failed') {
@@ -161,14 +184,12 @@ class WebRTCService {
 			}
 		};
 
-		// Uzak ses akışını al
 		connection.ontrack = (event) => {
 			console.log('Uzak ses akışı alındı');
 			const [remoteStream] = event.streams;
 			this.handleRemoteStream(userId, remoteStream);
 		};
 
-		// Bağlantı durumunu izle
 		connection.onconnectionstatechange = () => {
 			console.log('Bağlantı durumu:', connection.connectionState);
 			if (connection.connectionState === 'connected') {
@@ -176,7 +197,6 @@ class WebRTCService {
 			}
 		};
 
-		// Sinyal durumunu izle
 		connection.onsignalingstatechange = () => {
 			console.log('Sinyal durumu:', connection.signalingState);
 		};
