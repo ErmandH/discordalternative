@@ -20,7 +20,6 @@ const VoiceControls = () => {
 
   const handleJoinVoice = async () => {
     try {
-      await WebRTCService.setupSocketListeners();
       await WebRTCService.joinVoiceChat();
       setIsConnected(true);
     } catch (error) {

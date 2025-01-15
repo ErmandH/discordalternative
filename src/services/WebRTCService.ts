@@ -9,6 +9,7 @@ class WebRTCService {
 	private static instance: WebRTCService;
 	private peerConnections: Map<string, PeerConnection> = new Map();
 	private localStream: MediaStream | null = null;
+	private isSocketListenerSetup = false;
 	private configuration: RTCConfiguration = {
 		iceServers: [
 			{ urls: 'stun:stun.l.google.com:19302' },
@@ -16,9 +17,7 @@ class WebRTCService {
 		],
 	};
 
-	private constructor() {
-		this.setupSocketListeners();
-	}
+	private constructor() { }
 
 	public static getInstance(): WebRTCService {
 		if (!WebRTCService.instance) {
@@ -31,11 +30,16 @@ class WebRTCService {
 		return this.localStream;
 	}
 
-	public setupSocketListeners(): void {
+	private setupSocketListeners(): void {
+		if (this.isSocketListenerSetup) return;
+
 		const socket = SocketService.getSocket();
 		console.log('setupSocketListeners:', socket);
 		if (!socket) return;
-		console.log('setupSocketListeners socket mevcut:', socket);
+
+		console.log('Socket dinleyicileri kuruluyor...');
+		this.isSocketListenerSetup = true;
+
 		socket.on('voice_user_joined', async ({ userId }: { userId: string }) => {
 			console.log('Yeni kullanıcı sesli sohbete katıldı:', userId);
 			await this.createPeerConnection(userId);
@@ -243,7 +247,13 @@ class WebRTCService {
 
 	public async joinVoiceChat(): Promise<void> {
 		try {
+			// Socket dinleyicilerini kur
+			this.setupSocketListeners();
+
+			// Mikrofonu başlat
 			await this.initLocalStream();
+
+			// Sesli sohbete katıl
 			SocketService.emit('voice_join', {});
 			console.log('Sesli sohbete katılma başarılı');
 		} catch (error) {
