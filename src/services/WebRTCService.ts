@@ -16,7 +16,17 @@ class WebRTCService {
 			{
 				urls: [
 					'stun:stun.l.google.com:19302',
+					'stun:stun1.l.google.com:19302',
+					'stun:stun2.l.google.com:19302'
 				]
+			},
+			{
+				urls: [
+					'turn:discordalternative.metered.live:80',
+					'turn:discordalternative.metered.live:443'
+				],
+				username: '19e14f739476b78d0851fa86',
+				credential: 'GGw76ZzLCvxmAfxt'
 			}
 		],
 		iceTransportPolicy: 'all',
@@ -154,17 +164,41 @@ class WebRTCService {
 			throw new Error('Yerel ses akışı alınamadı');
 		}
 
+		// Ses kanallarını ekle
 		stream.getTracks().forEach(track => {
-			connection.addTrack(track, stream);
-			console.log('Ses kanalı eklendi:', track.id);
+			const sender = connection.addTrack(track, stream);
+			console.log('Ses kanalı eklendi:', track.id, 'durumu:', track.enabled, track.readyState);
+
+			// Sender durumunu izle
+			setInterval(() => {
+				const stats = sender.getStats();
+				stats.then(report => {
+					report.forEach(stat => {
+						if (stat.type === 'outbound-rtp') {
+							console.log('Gönderilen ses istatistikleri:', userId, {
+								bytesSent: stat.bytesSent,
+								packetsSent: stat.packetsSent,
+								timestamp: stat.timestamp
+							});
+						}
+					});
+				});
+			}, 5000);
 		});
 
 		connection.onicecandidate = (event) => {
 			if (event.candidate) {
-				console.log('Yeni ICE adayı bulundu:', event.candidate.type, event.candidate.protocol);
+				const { candidate, sdpMid, sdpMLineIndex } = event.candidate;
+				console.log('Yeni ICE adayı bulundu:', {
+					type: event.candidate.type,
+					protocol: event.candidate.protocol,
+					address: event.candidate.address,
+					port: event.candidate.port
+				});
+
 				SocketService.emit('voice_ice_candidate', {
 					userId,
-					candidate: event.candidate
+					candidate: { candidate, sdpMid, sdpMLineIndex }
 				});
 			} else {
 				console.log('ICE aday toplama tamamlandı');
@@ -172,7 +206,13 @@ class WebRTCService {
 		};
 
 		connection.oniceconnectionstatechange = () => {
-			console.log('ICE Bağlantı durumu:', connection.iceConnectionState, 'için', userId);
+			console.log('ICE Bağlantı durumu değişti:', {
+				userId,
+				state: connection.iceConnectionState,
+				gatheringState: connection.iceGatheringState,
+				signalingState: connection.signalingState
+			});
+
 			if (connection.iceConnectionState === 'failed') {
 				console.log('ICE bağlantısı başarısız oldu, yeniden deneniyor...', userId);
 				connection.restartIce();
@@ -222,12 +262,22 @@ class WebRTCService {
 		audioElement.id = `remote-audio-${userId}`;
 		audioElement.srcObject = stream;
 		audioElement.autoplay = true;
+		audioElement.volume = 1.0; // Ses seviyesini maksimuma ayarla
 		document.body.appendChild(audioElement);
+
+		// Ses akışını kontrol et
+		stream.getAudioTracks().forEach(track => {
+			console.log('Uzak ses kanalı durumu:', track.id, track.enabled, track.readyState);
+			track.onended = () => console.log('Uzak ses kanalı sonlandı:', track.id);
+			track.onmute = () => console.log('Uzak ses kanalı susturuldu:', track.id);
+			track.onunmute = () => console.log('Uzak ses kanalı susturma kaldırıldı:', track.id);
+		});
 
 		// Ses seviyesini kontrol et
 		const audioContext = new AudioContext();
 		const source = audioContext.createMediaStreamSource(stream);
 		const analyser = audioContext.createAnalyser();
+		analyser.fftSize = 256;
 		source.connect(analyser);
 
 		const dataArray = new Uint8Array(analyser.frequencyBinCount);
@@ -235,7 +285,7 @@ class WebRTCService {
 			analyser.getByteFrequencyData(dataArray);
 			const average = dataArray.reduce((a, b) => a + b) / dataArray.length;
 			if (average > 0) {
-				console.log('Uzak ses seviyesi:', userId, average);
+				console.log('Uzak ses seviyesi algılandı:', userId, Math.round(average));
 			}
 		};
 		setInterval(checkAudioLevel, 100);
